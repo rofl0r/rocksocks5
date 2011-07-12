@@ -1,0 +1,24 @@
+minimalistic socks5 server.
+
+supports no-auth and username auth.
+
+supports CONNECT method. no bind and UDP atm.
+
+uses only ~150 kb stack memory for 32 possible clients and 1 page of heap memory for getaddrinfo.
+
+select() based using asynchronous sockets.
+
+supports maximum 510 clients. (FD_SETSIZE / 2 - 3)
+
+installation:
+
+cd /tmp
+mkdir socksserver-0000
+cd socksserver-0000/
+git clone https://github.com/rofl0r/rocksocks5 socksserver
+git clone https://github.com/rofl0r/libulz lib
+git clone https://github.com/rofl0r/rocksock
+cd socksserver
+CC=musl-gcc make
+
+
