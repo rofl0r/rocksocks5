@@ -1,8 +1,27 @@
+/*
+    Copyright (C) 2011-4ever  rofl0r
+
+    This program is free software: you can redistribute it and/or modify
+    it under the terms of the GNU General Public License as published by
+    the Free Software Foundation, either version 3 of the License, or
+    (at your option) any later version.
+
+    This program is distributed in the hope that it will be useful,
+    but WITHOUT ANY WARRANTY; without even the implied warranty of
+    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+    GNU General Public License for more details.
+
+    You should have received a copy of the GNU General Public License
+    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+    
+ */
+
 #include <stdio.h>
 #include <unistd.h>
 #include <grp.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <arpa/inet.h>
 
 #include "../rocksock/rocksockserver.h"
 
@@ -13,6 +32,13 @@
 
 #include "../lib/stringptr.h"
 #include "../lib/optparser.h"
+#include "../lib/logger.h"
+
+//RcB: DEP "../lib/stringptr.c"
+//RcB: DEP "../lib/optparser.c"
+//RcB: DEP "../rocksock/rocksockserver.c"
+//RcB: DEP "../lib/stringptr.c"
+//RcB: DEP "../lib/logger.c"
 
 #define USER_BUFSIZE_KB 4
 #define USER_MAX_CONN 32
@@ -121,8 +147,19 @@ int socksserver_on_clientdisconnect (void* userdata, int fd) {
 	return 0;
 }
 
+static char* get_client_ip(struct sockaddr_storage* ip, char* buffer, size_t bufsize) {
+	if(ip->ss_family == PF_INET)
+	return (char*) inet_ntop(PF_INET, &((struct sockaddr_in*) ip)->sin_addr, buffer, bufsize);
+	else return (char*) inet_ntop(PF_INET6, &((struct sockaddr_in6*) ip)->sin6_addr, buffer, bufsize);
+}
+
+
 int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clientaddr, int fd) {
 	socksserver* srv = (socksserver*) userdata;
+	char buffer[256];
+	if(srv->log && clientaddr) {
+		log_put(0, VARISL("["), VARII(fd), VARISL("] connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), 0);
+	}
 	
 	if(fd < 3 || fd >= MAX_FD) {
 		rocksockserver_disconnect_client(&srv->serva, fd);
@@ -168,13 +205,14 @@ int socksserver_on_clientwantsdata (void* userdata, int fd) {
 // returns either the one authmethod supported by the server or AM_INVALID.
 rfc1928_authmethod socksserver_parse_authpacket(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
-	unsigned char numMethods, i;
+	unsigned char numMethods;
+	unsigned char i;
 
 	if(client->data->start < 3) return AM_INVALID;
 	if(client->data->buf[0] != 5) return AM_INVALID;
 	numMethods = client->data->buf[1];
-	for(i = 0; i < numMethods && 2 + i < client->data->start; i++) {
-		if(client->data->buf[2 + i] == srv->accepted_authmethod)
+	for(i = 0; i < numMethods && (2U + i) < client->data->start; i++) {
+		if(client->data->buf[2 + i] == (unsigned char) srv->accepted_authmethod)
 			return srv->accepted_authmethod;
 	}
 	return AM_INVALID;
@@ -210,7 +248,7 @@ int socksserver_write(socksserver* srv, int fd) {
 			rocksockserver_disconnect_client(&srv->serva, fd);
 			return 3;
 		}
-	} else if (written == client->data->used - client->data->start)
+	} else if ((size_t) written == client->data->used - client->data->start)
 		client->data->state = BS_IDLE;
 	return 0;
 }
@@ -389,12 +427,19 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 	size_t i = 0;
 	unsigned char dlen = 0;
 	unsigned char* buf = client->data->buf;
-	rs_hostInfo addr = {0};
-	struct addrinfo addrbuf = {0};
-	struct sockaddr sockbuf = {0};
+	int flags, ret;
+	rs_hostInfo addr;
+	
+	struct addrinfo addrbuf;
+	struct sockaddr sockbuf;
+	
+	memset(&addr, 0, sizeof(addr));
+	memset(&addrbuf, 0, sizeof(addrbuf));
+	memset(&sockbuf, 0, sizeof(sockbuf));
+	
 	addrbuf.ai_addr = &sockbuf;
 	addr.hostaddr = &addrbuf;
-	int flags, ret;
+	
 	
 	if(!client->data->start) return -1;
 	if(buf[i++] != 5) return EC_NOT_ALLOWED; // check first byte whenever the message length is > 0 to not waste resources on maldoers
@@ -414,7 +459,7 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 		case 3:
 			//dns
 			dlen = buf[i++];
-			if(client->data->start < 1+1+1+1+1+dlen+2) return -1;
+			if(client->data->start < 1U+1U+1U+1U+1U+dlen+2U) return -1;
 			addr.port = my_ntohs(buf + i + dlen);
 			buf[i + dlen] = 0;
 			addr.host = (char*) (buf + i);
@@ -510,6 +555,8 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 	char buf[4];
 	ssize_t readv;
 	int ret;
+	
+	(void) dummy;
 	
 	if(client->state == SS_AWAITING_PIPE || (client->data->state != BS_IDLE && client->data->state != BS_READING)) {
 		if((readv = recvfrom(fd, buf, 4, MSG_PEEK, NULL, NULL)) <= 0) {
