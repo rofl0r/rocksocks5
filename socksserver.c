@@ -40,8 +40,14 @@
 //RcB: DEP "../lib/stringptr.c"
 //RcB: DEP "../lib/logger.c"
 
+#ifndef USER_BUFSIZE_KB
 #define USER_BUFSIZE_KB 4
+#endif
+
+#ifndef USER_MAX_CONN
 #define USER_MAX_CONN 32
+#endif
+
 #define CLIENT_BUFSIZE (USER_BUFSIZE_KB * 1024)
 
 typedef enum {
@@ -116,6 +122,12 @@ typedef struct {
 #define MAX_FD (3 + (USER_MAX_CONN * 2))
 #define fdindex(a) (a - 3)
 
+static void printfd(int fd) {
+	log_puts(1, SPLITERAL("["));
+	log_putd(1, fd, 1);
+	log_puts(1, SPLITERAL("]"));
+}
+
 static inline socksbuffer* find_free_buffer(socksserver* srv) {
 	size_t i;
 	for(i = 0; i < USER_MAX_CONN; i++) {
@@ -130,20 +142,31 @@ int socksserver_write(socksserver* srv, int fd);
 void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	int fdflag = 0;
+	if(srv->log) {
+		printfd(fd);
+		log_put(1, VARISL(" disconnect, forced: "), VARII(forced), NULL);
+	}
+	
 	if(forced) rocksockserver_disconnect_client(&srv->serva, fd);
 	client->state = SS_DISCONNECTED;
 	client->data->state = BS_UNUSED;
 	client->data->start = 0;
 	client->data->used = 0;
 	if(client->target_fd != -1) fdflag = 1;
+	fd = client->target_fd;
 	client->target_fd = -1;
-	if(fdflag) socksserver_disconnect_client(srv, fd, 1);
+	
+	if(fdflag) {
+		srv->clients[fdindex(fd)].target_fd = -1;
+		socksserver_disconnect_client(srv, fd, 1);
+	}
 }
 
 int socksserver_on_clientdisconnect (void* userdata, int fd) {
 	socksserver* srv = (socksserver*) userdata;
 	fdinfo* client = &srv->clients[fdindex(fd)];
-	if(client->target_fd != -1) socksserver_disconnect_client(srv, client->target_fd, 0);
+	//if(client->target_fd != -1) socksserver_disconnect_client(srv, client->target_fd, 0);
+	socksserver_disconnect_client(srv, fd, 0);
 	return 0;
 }
 
@@ -158,7 +181,8 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	socksserver* srv = (socksserver*) userdata;
 	char buffer[256];
 	if(srv->log && clientaddr) {
-		log_put(0, VARISL("["), VARII(fd), VARISL("] connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), 0);
+		printfd(fd);
+		log_put(1, VARISL(" connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), NULL);
 	}
 	
 	if(fd < 3 || fd >= MAX_FD) {
@@ -519,6 +543,15 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 	srv->clients[fdindex(client->target_fd)].target_fd = fd;
 	rocksockserver_watch_fd(&srv->serva, client->target_fd);
 	
+	if(srv->log) {
+		if(get_client_ip((struct sockaddr_storage*) addr.hostaddr->ai_addr, (char*) buf, CLIENT_BUFSIZE)) {
+			printfd(fd);
+			log_puts(1, SPLITERAL(" -> "));
+			printfd(client->target_fd);
+			log_put(1, VARISL(" <"), VARIC((char*)buf), VARISL(">"), NULL);
+		}
+	}
+	
 	return EC_SUCCESS;
 }
 
@@ -667,7 +700,7 @@ void syntax(opts* opt) {
 	puts("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar");
 	puts("user and pass are regarding socks authentication");
 	printf("passed options were:\n");
-	op_fprintAll(opt, stdout);
+	op_printAll(opt);
 	op_freeOpts(opt);
 	exit(1);
 }
