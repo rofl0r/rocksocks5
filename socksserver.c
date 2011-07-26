@@ -30,15 +30,9 @@
 
 #include "../rocksock/endianness.h"
 
-#include "../lib/stringptr.h"
-#include "../lib/optparser.h"
-#include "../lib/logger.h"
-
-//RcB: DEP "../lib/stringptr.c"
-//RcB: DEP "../lib/optparser.c"
-//RcB: DEP "../rocksock/rocksockserver.c"
-//RcB: DEP "../lib/stringptr.c"
-//RcB: DEP "../lib/logger.c"
+#include "../lib/include/stringptr.h"
+#include "../lib/include/optparser.h"
+#include "../lib/include/logger.h"
 
 #ifndef USER_BUFSIZE_KB
 #define USER_BUFSIZE_KB 4
@@ -700,28 +694,28 @@ void syntax(opts* opt) {
 	puts("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar");
 	puts("user and pass are regarding socks authentication");
 	printf("passed options were:\n");
-	op_printAll(opt);
-	op_freeOpts(opt);
+	op_printall(opt);
+	op_free(opt);
 	exit(1);
 }
 
 int main(int argc, char** argv) {
 	socksserver srv;
 	static const char defaultip[] = "127.0.0.1";
-	opts* opt = op_parseOpts(argc, argv);
-	stringptr* o_port = op_getOpt(opt, "port");
-	stringptr* o_listenip = op_getOpt(opt, "listenip");
-	stringptr* o_log = op_getOpt(opt, "log");
-	stringptr* o_uid = op_getOpt(opt, "uid");
-	stringptr* o_gid = op_getOpt(opt, "gid");
-	stringptr* o_user = op_getOpt(opt, "user");
-	stringptr* o_pass = op_getOpt(opt, "pass");
+	opts* opt = op_parse(argc, argv);
+	stringptr* o_port = op_get(opt, "port");
+	stringptr* o_listenip = op_get(opt, "listenip");
+	stringptr* o_log = op_get(opt, "log");
+	stringptr* o_uid = op_get(opt, "uid");
+	stringptr* o_gid = op_get(opt, "gid");
+	stringptr* o_user = op_get(opt, "user");
+	stringptr* o_pass = op_get(opt, "pass");
 	
 	int log = o_log ? atoi(o_log->ptr) : 1;
 	char* ip = o_listenip ? o_listenip->ptr : (char*) defaultip;
 	int port = o_port ? atoi(o_port->ptr) : 1080;
 	
-	if(op_hasFlag(opt, 'h')) syntax(opt);
+	if(op_hasflag(opt, 'h')) syntax(opt);
 	if((o_user && (!o_pass || o_user->size > 255)) || (o_pass && (!o_user || o_pass->size > 255))) {
 		puts("fatal: username or password exceeding 255 chars, or only one of both set");
 		exit(1);
@@ -729,7 +723,7 @@ int main(int argc, char** argv) {
 	
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid ? atoi(o_uid->ptr) : -1, o_gid ? atoi(o_gid->ptr) : -1);
 	
-	op_freeOpts(opt);
+	op_free(opt);
 	return 0;
 }
 

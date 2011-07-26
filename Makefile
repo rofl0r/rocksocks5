@@ -1,22 +1,25 @@
-INCLUDES=../lib
-LINKDIRS=../lib
-MYLIB=../lib
-ROCKSOCK=../rocksock
+INCLUDES="."
+LINKDIRS=
+LINKLIBS=
 
-OUTFILE=socksserver
+MAINFILE=socksserver.c
+
 CFLAGS_OWN=-Wall -D_GNU_SOURCE
-
-INCFILES=${ROCKSOCK}/rocksockserver.c ${MYLIB}/strlib.c ${MYLIB}/stringptr.c ${MYLIB}/optparser.c ${MYLIB}/logger.c ${MYLIB}/stringptrlist.c
+CFLAGS_DBG=-g
+CFLAGS_OPT=-s -Os
 
 -include config.mak
+
+CFLAGS_RCB_OPT=${CFLAGS_OWN} ${CFLAGS_OPT} -I ${INCLUDES} ${LINKLIBS} ${CFLAGS}
+CFLAGS_RCB_DBG=${CFLAGS_OWN} ${CFLAGS_DBG} -I ${INCLUDES} ${LINKLIBS} ${CFLAGS}
 
 all: debug
 
 optimized:
-	${CC} ${CFLAGS_OWN} -s -Os -I ${INCLUDES} socksserver.c ${INCFILES} ${LINKLIBS} ${CFLAGS} -o ${OUTFILE}-$@
+	CFLAGS="${CFLAGS_RCB_OPT}" rcb --force ${MAINFILE}
 
 debug:
-	${CC} ${CFLAGS_OWN} -g -I ${INCLUDES} socksserver.c ${INCFILES} ${LINKLIBS} ${CFLAGS} -o ${OUTFILE}-$@
+	CFLAGS="${CFLAGS_RCB_DBG}" rcb --force ${MAINFILE}
 
 
 .PHONY: all optimized debug
