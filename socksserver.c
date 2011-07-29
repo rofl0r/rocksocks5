@@ -158,7 +158,7 @@ void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 
 int socksserver_on_clientdisconnect (void* userdata, int fd) {
 	socksserver* srv = (socksserver*) userdata;
-	fdinfo* client = &srv->clients[fdindex(fd)];
+//	fdinfo* client = &srv->clients[fdindex(fd)];
 	//if(client->target_fd != -1) socksserver_disconnect_client(srv, client->target_fd, 0);
 	socksserver_disconnect_client(srv, fd, 0);
 	return 0;
@@ -193,7 +193,7 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	
 	client->data = find_free_buffer(srv);
 	if (!client->data) {
-		puts("warning: couldnt find free buffer");
+		log_puts(1, SPL("warning: couldnt find free buffer\n"));
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
 	}
@@ -663,11 +663,11 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 	
 	//dropping privs after bind()
 	if(gid != -1 && setgid(gid) == -1)
-		perror("setgid");
+		log_perror("setgid");
 	if(gid != -1 && setgroups(0, NULL) == -1)
-		perror("setgroups");
+		log_perror("setgroups");
 	if(uid != -1 && setuid(uid) == -1) 
-		perror("setuid");
+		log_perror("setuid");
 	
 	if(username) {
 		memcpy(srv->_username, username->ptr, username->size);
@@ -690,40 +690,39 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 }
 
 __attribute__ ((noreturn))
-void syntax(opts* opt) {
-	puts("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar");
-	puts("user and pass are regarding socks authentication");
-	printf("passed options were:\n");
+void syntax(op_state* opt) {
+	log_puts(1, SPL("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar\n"));
+	log_puts(1, SPL("user and pass are regarding socks authentication\n"));
+	log_puts(1, SPL("passed options were:\n"));
 	op_printall(opt);
-	op_free(opt);
 	exit(1);
 }
 
 int main(int argc, char** argv) {
 	socksserver srv;
 	static const char defaultip[] = "127.0.0.1";
-	opts* opt = op_parse(argc, argv);
-	stringptr* o_port = op_get(opt, "port");
-	stringptr* o_listenip = op_get(opt, "listenip");
-	stringptr* o_log = op_get(opt, "log");
-	stringptr* o_uid = op_get(opt, "uid");
-	stringptr* o_gid = op_get(opt, "gid");
-	stringptr* o_user = op_get(opt, "user");
-	stringptr* o_pass = op_get(opt, "pass");
+	op_state opt_storage, *opt = &opt_storage;
+	op_init(opt, argc, argv);
+	SPDECLAREC(o_port, op_get(opt, SPL("port")));
+	SPDECLAREC(o_listenip, op_get(opt, SPL("listenip")));
+	SPDECLAREC(o_log, op_get(opt, SPL("log")));
+	SPDECLAREC(o_uid, op_get(opt, SPL("uid")));
+	SPDECLAREC(o_gid, op_get(opt, SPL("gid")));
+	SPDECLAREC(o_user, op_get(opt, SPL("user")));
+	SPDECLAREC(o_pass, op_get(opt, SPL("pass")));
 	
-	int log = o_log ? atoi(o_log->ptr) : 1;
-	char* ip = o_listenip ? o_listenip->ptr : (char*) defaultip;
-	int port = o_port ? atoi(o_port->ptr) : 1080;
+	int log = o_log->size ? atoi(o_log->ptr) : 1;
+	char* ip = o_listenip->size ? o_listenip->ptr : (char*) defaultip;
+	int port = o_port->size ? atoi(o_port->ptr) : 1080;
 	
-	if(op_hasflag(opt, 'h')) syntax(opt);
-	if((o_user && (!o_pass || o_user->size > 255)) || (o_pass && (!o_user || o_pass->size > 255))) {
-		puts("fatal: username or password exceeding 255 chars, or only one of both set");
+	if(op_hasflag(opt, SPLITERAL("-help"))) syntax(opt);
+	if((o_user->size && (!o_pass->size || o_user->size > 255)) || (o_pass->size && (!o_user->size || o_pass->size > 255))) {
+		log_puts(1, SPL("fatal: username or password exceeding 255 chars, or only one of both set\n"));
 		exit(1);
 	}
 	
-	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid ? atoi(o_uid->ptr) : -1, o_gid ? atoi(o_gid->ptr) : -1);
-	
-	op_free(opt);
+	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? atoi(o_uid->ptr) : -1, o_gid->size ? atoi(o_gid->ptr) : -1);
+
 	return 0;
 }
 
