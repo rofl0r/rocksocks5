@@ -16,6 +16,15 @@
     
  */
 
+// possible defines: (nothing) -> uses getaddrinfo, 
+//   thus pulling in dependencies to malloc, free, gai_strerror et al, and even printf
+//   this increases the binary size by around 50 KB. supports all methods.
+// NO_DNS_LOOKUP -> supports only method 0 (client submits ipv4). binary size is only ~25KB
+// IPV4_ONLY -> uses gethostbyname for dns lookup. 
+//   unfortunately most modern libcs just call getaddrinfo internally.
+// IPV4_ONLY + USE_FIREDNS supports DNS via firedns. pulls dependecies to firedns and malloc/free.
+//   should still be much smaller than gethostbyname/getaddrinfo.
+
 #include <stdio.h>
 #include <unistd.h>
 #include <grp.h>
@@ -34,6 +43,25 @@
 #include "../lib/include/strlib.h"
 #include "../lib/include/optparser.h"
 #include "../lib/include/logger.h"
+
+#ifdef USE_FIREDNS
+#include "../firedns/src/firedns/firedns_internal.h"
+// firedns in our usage scenario only allocates structs of type s_connection
+
+#define SSA_MAXELEM 64
+#define SSA_ELEMSIZE (sizeof(struct s_connection))
+#include "../lib/include/ssalloc.c"
+#include "../firedns/include/firedns.h"
+
+void* malloc(size_t size) {
+	return SSALLOC(size);
+}
+
+void free(void* ptr) {
+	SSFREE(ptr);
+}
+
+#endif
 
 #ifndef USER_BUFSIZE_KB
 #define USER_BUFSIZE_KB 4
@@ -383,10 +411,11 @@ static inline uint16_t my_ntohs (unsigned char* port) {
 	return port[0] + (port[1] * 256);
 #endif
 }
+
 #ifndef NO_DNS_SUPPORT
 int resolve_host(rs_hostInfo* hostinfo) {
 	if (!hostinfo || !hostinfo->host || !hostinfo->port) return -1;
-#ifndef IPV4_ONLY
+#  ifndef IPV4_ONLY
 	int ret;
 	struct addrinfo hints;
 	memset(&hints, 0, sizeof(hints));
@@ -401,16 +430,27 @@ int resolve_host(rs_hostInfo* hostinfo) {
 		return 0;
 	} else
 		return ret;
-#else
+#  else
+#    ifdef USE_FIREDNS
+	struct in_addr *result;
+	result = firedns_resolveip4(hostinfo->host);
+	if(!result) return 1;
+#    else
 	struct hostent* he;
 	if (!(he = gethostbyname(hostinfo->host)) || !he->h_addr_list[0] || he->h_addrtype != AF_INET) return -2;
+#    endif	
 	hostinfo->hostaddr->ai_family = AF_INET;
 	hostinfo->hostaddr->ai_addr->sa_family = AF_INET;
 	hostinfo->hostaddr->ai_addrlen = sizeof(struct sockaddr_in);
+#    ifdef USE_FIREDNS
+	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, result, 4);
+#    else	
 	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, he->h_addr_list[0], 4);
+#    endif	
 	((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
 	return 0;
-#endif
+
+#  endif
 }
 #endif
 /*
@@ -755,7 +795,9 @@ int main(int argc, char** argv) {
 		log_puts(1, SPL("fatal: username or password exceeding 255 chars, or only one of both set\n"));
 		exit(1);
 	}
-	
+#ifdef USE_FIREDNS
+	SSINIT;
+#endif
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? atoi(o_uid->ptr) : -1, o_gid->size ? atoi(o_gid->ptr) : -1);
 
 	return 0;
