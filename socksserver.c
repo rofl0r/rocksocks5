@@ -799,7 +799,7 @@ int main(int argc, char** argv) {
 #ifdef USE_FIREDNS
 	SSINIT;
 #endif
-	if(op_hasflag(srv.opt, SPL("d"))) daemonize();
+	if(op_hasflag(opt, SPL("d"))) daemonize();
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? atoi(o_uid->ptr) : -1, o_gid->size ? atoi(o_gid->ptr) : -1);
 
 	return 0;
