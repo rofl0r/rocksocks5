@@ -43,6 +43,7 @@
 #include "../lib/include/strlib.h"
 #include "../lib/include/optparser.h"
 #include "../lib/include/logger.h"
+#include "../lib/include/proclib.h"
 
 #ifdef USE_FIREDNS
 #include "../firedns/src/firedns/firedns_internal.h"
@@ -766,7 +767,7 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 
 __attribute__ ((noreturn))
 void syntax(op_state* opt) {
-	log_puts(1, SPL("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar\n"));
+	log_puts(1, SPL("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar -d\n"));
 	log_puts(1, SPL("user and pass are regarding socks authentication\n"));
 	log_puts(1, SPL("passed options were:\n"));
 	op_printall(opt);
@@ -798,6 +799,7 @@ int main(int argc, char** argv) {
 #ifdef USE_FIREDNS
 	SSINIT;
 #endif
+	if(op_hasflag(srv.opt, SPL("d"))) daemonize();
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? atoi(o_uid->ptr) : -1, o_gid->size ? atoi(o_gid->ptr) : -1);
 
 	return 0;
