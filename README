@@ -18,6 +18,9 @@ cd socksserver-0000/
 git clone https://github.com/rofl0r/rocksocks5 socksserver
 git clone https://github.com/rofl0r/libulz lib
 git clone https://github.com/rofl0r/rocksock
+git clone https://github.com/rofl0r/rcb
+export PATH=$PATH:/tmp/socksserver-0000/rcb
+ln -s /tmp/socksserver-0000/rcb/rcb.pl /tmp/socksserver-0000/rcb/rcb
 cd socksserver
 CC=musl-gcc make
 
