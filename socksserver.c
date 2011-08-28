@@ -151,7 +151,8 @@ typedef struct {
 #define fdindex(a) (a - 3)
 
 static void printfd(int fd) {
-	log_puts(1, SPLITERAL("["));
+	log_timestamp(1);
+	log_puts(1, SPLITERAL(" ["));
 	log_putd(1, fd, 1);
 	log_puts(1, SPLITERAL("]"));
 }
