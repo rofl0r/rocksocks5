@@ -74,6 +74,10 @@ void free(void* ptr) {
 
 #define CLIENT_BUFSIZE (USER_BUFSIZE_KB * 1024)
 
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+
 typedef enum {
 	AM_NO_AUTH = 0,
         AM_GSSAPI = 1,
@@ -296,7 +300,7 @@ int socksserver_read_client(socksserver* srv, int fd) {
 int socksserver_write(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	client->data->state = BS_WRITING;
-	ssize_t written = write(fd, client->data->buf + client->data->start, client->data->used - client->data->start);
+	ssize_t written = send(fd, client->data->buf + client->data->start, client->data->used - client->data->start, MSG_NOSIGNAL);
 	int err;
 	
 	if (written < 0) {
