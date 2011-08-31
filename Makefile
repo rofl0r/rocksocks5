@@ -4,7 +4,8 @@ LINKLIBS=
 
 MAINFILE=socksserver.c
 
-CFLAGS_OWN=-Wall -D_GNU_SOURCE
+CFLAGS_OWN=-Wall -D_GNU_SOURCE -std=c99
+#c99 for firedns compatibility (restrict keyword)
 CFLAGS_DBG=-g -O0
 CFLAGS_OPT=-s -Os
 
