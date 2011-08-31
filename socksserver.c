@@ -150,11 +150,16 @@ typedef struct {
 #define MAX_FD (3 + (USER_MAX_CONN * 2))
 #define fdindex(a) (a - 3)
 
-static void printfd(int fd) {
+static void logstart(void) {
+	log_puts(1, SPL("["));
 	log_timestamp(1);
-	log_puts(1, SPLITERAL(" ["));
+	log_puts(1, SPL("] "));
+}
+
+static void printfd(int fd) {
+	log_puts(1, SPLITERAL("("));
 	log_putd(1, fd, 1);
-	log_puts(1, SPLITERAL("]"));
+	log_puts(1, SPLITERAL(")"));
 }
 
 static inline socksbuffer* find_free_buffer(socksserver* srv) {
@@ -172,6 +177,7 @@ void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	int fdflag = 0;
 	if(srv->log) {
+		logstart();
 		printfd(fd);
 		log_put(1, VARISL(" disconnect, forced: "), VARII(forced), NULL);
 	}
@@ -223,6 +229,7 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	socksserver* srv = (socksserver*) userdata;
 	char buffer[256];
 	if(srv->log && clientaddr) {
+		logstart();
 		printfd(fd);
 		log_put(1, VARISL(" connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), NULL);
 	}
@@ -241,6 +248,7 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	
 	client->data = find_free_buffer(srv);
 	if (!client->data) {
+		logstart();
 		log_puts(1, SPL("warning: couldnt find free buffer\n"));
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
@@ -620,6 +628,7 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 	
 	if(srv->log) {
 		if(get_client_ip((struct sockaddr_storage*) addr.hostaddr->ai_addr, (char*) buf, CLIENT_BUFSIZE)) {
+			logstart();
 			printfd(fd);
 			log_puts(1, SPLITERAL(" -> "));
 			printfd(client->target_fd);
