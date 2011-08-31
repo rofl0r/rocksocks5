@@ -8,7 +8,7 @@ uses only ~150 kb stack memory for 32 possible clients and 1 page of heap memory
 
 select() based using asynchronous sockets.
 
-supports maximum 510 clients. (FD_SETSIZE / 2 - 3)
+supports maximum 510 clients. ((FD_SETSIZE - 3) / 2)
 
 installation:
 
@@ -23,6 +23,11 @@ git clone https://github.com/rofl0r/rcb
 export PATH=$PATH:/tmp/socksserver-0000/rcb
 ln -s /tmp/socksserver-0000/rcb/rcb.pl /tmp/socksserver-0000/rcb/rcb
 cd socksserver
-CC=musl-gcc make
+cp dist/config.mak .
+#your favorite editor here
+nano config.mak
+#your favorite C compiler here
+export CC=gcc
+make
 
 
