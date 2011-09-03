@@ -46,22 +46,7 @@
 #include "../lib/include/proclib.h"
 
 #ifdef USE_FIREDNS
-#include "../firedns/src/firedns/firedns_internal.h"
-// firedns in our usage scenario only allocates structs of type s_connection
-
-#define SSA_MAXELEM 64
-#define SSA_ELEMSIZE (sizeof(struct s_connection))
-#include "../lib/include/ssalloc.c"
 #include "../firedns/include/firedns.h"
-
-void* malloc(size_t size) {
-	return SSALLOC(size);
-}
-
-void free(void* ptr) {
-	SSFREE(ptr);
-}
-
 #endif
 
 #ifndef USER_BUFSIZE_KB
@@ -356,14 +341,18 @@ int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
 	return socksserver_write(srv, fd);
 }
 
-int socksserver_send_auth_response(socksserver* srv, int fd, rfc1928_authmethod meth) {
+int socksserver_send_auth_response_i(socksserver* srv, int fd, int version, rfc1928_authmethod meth) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
-	client->data->buf[0] = 5;
+	client->data->buf[0] = version;
 	client->data->buf[1] = meth;
 	client->data->state = BS_WRITING;
 	client->data->start = 0;
 	client->data->used = 2;
 	return socksserver_write(srv, fd);
+}
+
+int socksserver_send_auth_response(socksserver* srv, int fd, rfc1928_authmethod meth) {
+	return socksserver_send_auth_response_i(srv, fd, 5, meth);
 }
 
 /*
@@ -426,6 +415,10 @@ static inline uint16_t my_ntohs (unsigned char* port) {
 #endif
 }
 
+#ifdef USE_FIREDNS
+firedns_state fire;
+#endif
+
 #ifndef NO_DNS_SUPPORT
 int resolve_host(rs_hostInfo* hostinfo) {
 	if (!hostinfo || !hostinfo->host || !hostinfo->port) return -1;
@@ -447,7 +440,7 @@ int resolve_host(rs_hostInfo* hostinfo) {
 #  else
 #    ifdef USE_FIREDNS
 	struct in_addr *result;
-	result = firedns_resolveip4(hostinfo->host);
+	result = firedns_resolveip4(&fire, hostinfo->host);
 	if(!result) return 1;
 #    else
 	struct hostent* he;
@@ -714,10 +707,10 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 			if (!ret) return 3;
 			if (ret == -1) {
 				client->state = SS_AWAITING_DISCONNECT;
-				socksserver_send_auth_response(srv, fd, AM_INVALID);
+				socksserver_send_auth_response_i(srv, fd, 1, AM_INVALID);
 			} else {
 				client->state = SS_AUTHED;
-				socksserver_send_auth_response(srv, fd, 0); // abusing the func here.. 0 indicates success, 0xFF fail
+				socksserver_send_auth_response_i(srv, fd, 1, 0);
 			}
 			break;
 		case SS_AUTHED:
@@ -774,6 +767,9 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 	}
 	
 	srv->accepted_authmethod = username->size ? AM_USERNAME : AM_NO_AUTH;
+	#ifdef USE_FIREDNS
+	firedns_init(&fire);
+	#endif
 	
 	if(rocksockserver_loop(&srv->serva, NULL, 0, &socksserver_on_clientconnect, &socksserver_on_clientread, &socksserver_on_clientwantsdata, &socksserver_on_clientdisconnect)) return -2;
 	return 0;
@@ -810,9 +806,7 @@ int main(int argc, char** argv) {
 		log_puts(1, SPL("fatal: username or password exceeding 255 chars, or only one of both set\n"));
 		exit(1);
 	}
-#ifdef USE_FIREDNS
-	SSINIT;
-#endif
+
 	if(op_hasflag(opt, SPL("d"))) daemonize();
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? atoi(o_uid->ptr) : -1, o_gid->size ? atoi(o_gid->ptr) : -1);
 
