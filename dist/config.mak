@@ -7,5 +7,12 @@
 #CFLAGS+=-DIPV4_ONLY
 #CFLAGS+=-DNO_DNS_SUPPORT
 #CFLAGS+=-DUSE_FIREDNS -std=gnu99
+#CFLAGS+=-DNO_LOG
+#CFLAGS+=-DNO_IDSWITCH
+#CFLAGS+=-DNO_DAEMONIZE
+
+#use dead code elimination
+#CFLAGS+=-ftree-dce -fdata-sections -ffunction-sections -Wl,--gc-sections
+
 
 
