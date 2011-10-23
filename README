@@ -4,7 +4,9 @@ supports no-auth and username auth.
 
 supports CONNECT method. no bind and UDP atm.
 
-uses only ~150 kb stack memory for 32 possible clients and 1 page of heap memory for getaddrinfo.
+uses only ~150 kb stack memory for 32 possible clients and 1 page of heap memory for getaddrinfo
+(however dns resolution can be configured to use my firedns fork, which allocates a single stack
+buffer, or to do no DNS resolution at all (only ipv4))
 
 select() based using asynchronous sockets.
 
@@ -30,6 +32,5 @@ nano config.mak
 
 #your favorite C compiler here
 export CC=gcc
-RCBFLAGS=--ignore-errors make
-#--ignore-errors is needed as firedns is currently WIP (but the part needed works)
+make
 
