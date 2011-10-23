@@ -18,6 +18,7 @@ all: debug
 
 optimized:
 	CFLAGS="${CFLAGS_RCB_OPT}" rcb --force ${RCBFLAGS} ${MAINFILE}
+	strip --remove-section .comment socksserver.out
 
 debug:
 	CFLAGS="${CFLAGS_RCB_DBG}" rcb --force ${RCBFLAGS} ${MAINFILE}
