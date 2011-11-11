@@ -808,6 +808,8 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 	srv->accepted_authmethod = username->size ? AM_USERNAME : AM_NO_AUTH;
 	#ifdef USE_FIREDNS
 	firedns_init(&fire);
+	firedns_add_server(&fire, "8.8.4.4");
+	firedns_add_server(&fire, "8.8.8.8");
 	#endif
 	
 	if(rocksockserver_loop(&srv->serva, NULL, 0, &socksserver_on_clientconnect, &socksserver_on_clientread, &socksserver_on_clientwantsdata, &socksserver_on_clientdisconnect)) return -2;
