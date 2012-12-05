@@ -836,13 +836,24 @@ int main(int argc, char** argv) {
 	op_init(opt, argc, argv);
 	SPDECLAREC(o_port, op_get(opt, SPL("port")));
 	SPDECLAREC(o_listenip, op_get(opt, SPL("listenip")));
+#ifndef NO_LOG
 	SPDECLAREC(o_log, op_get(opt, SPL("log")));
+	int log = o_log->size ? strtoint(o_log->ptr, o_log->size) : 1;
+#else
+	int log = 0;
+#endif
+#ifndef NO_IDSWITCH
 	SPDECLAREC(o_uid, op_get(opt, SPL("uid")));
 	SPDECLAREC(o_gid, op_get(opt, SPL("gid")));
+	int uid = o_uid->size ? strtoint(o_uid->ptr, o_uid->size) : -1;
+	int gid = o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1:
+#else
+	int uid = -1;
+	int gid = -1;
+#endif
 	SPDECLAREC(o_user, op_get(opt, SPL("user")));
 	SPDECLAREC(o_pass, op_get(opt, SPL("pass")));
 	
-	int log = o_log->size ? strtoint(o_log->ptr, o_log->size) : 1;
 	char* ip = o_listenip->size ? o_listenip->ptr : (char*) defaultip;
 	int port = o_port->size ? strtoint(o_port->ptr, o_port->size) : 1080;
 	
@@ -858,7 +869,7 @@ int main(int argc, char** argv) {
 #ifndef NO_DAEMONIZE
 	if(op_hasflag(opt, SPL("d"))) daemonize();
 #endif
-	socksserver_init(&srv, ip, port, log, o_user, o_pass, o_uid->size ? strtoint(o_uid->ptr, o_uid->size) : -1, o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1);
+	socksserver_init(&srv, ip, port, log, o_user, o_pass, uid, gid);
 
 	return 0;
 }
