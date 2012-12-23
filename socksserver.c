@@ -846,7 +846,7 @@ int main(int argc, char** argv) {
 	SPDECLAREC(o_uid, op_get(opt, SPL("uid")));
 	SPDECLAREC(o_gid, op_get(opt, SPL("gid")));
 	int uid = o_uid->size ? strtoint(o_uid->ptr, o_uid->size) : -1;
-	int gid = o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1:
+	int gid = o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1;
 #else
 	int uid = -1;
 	int gid = -1;
