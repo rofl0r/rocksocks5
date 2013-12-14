@@ -13,16 +13,16 @@
 
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
-    
+
  */
 
-// possible defines: (nothing) -> uses getaddrinfo, 
+// possible defines: (nothing) -> uses getaddrinfo,
 //   thus pulling in dependencies to malloc, free, gai_strerror et al, and even printf
 //   this increases the binary size by around 50 KB. supports all methods.
 // NO_DNS_LOOKUP -> supports only method 0 (client submits ipv4). binary size is only ~25KB
-// IPV4_ONLY -> uses gethostbyname for dns lookup. 
+// IPV4_ONLY -> uses gethostbyname for dns lookup.
 //   unfortunately most modern libcs just call getaddrinfo internally.
-// IPV4_ONLY + USE_FIREDNS supports DNS via firedns. pulls dependecies to firedns and malloc/free.
+// IPV4_ONLY + USE_FIREDNS supports DNS via firedns. pulls dependecies to firedns.
 //   should still be much smaller than gethostbyname/getaddrinfo.
 // NO_LOG - no output at all
 // NO_IDSWITCH - do not compile possibility to switch uid/gid
@@ -172,14 +172,14 @@ int socksserver_write(socksserver* srv, int fd);
 void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	int fdflag = 0;
-#ifndef NO_LOG	
+#ifndef NO_LOG
 	if(srv->log) {
 		logstart();
 		printfd(fd);
 		log_put(1, VARISL(" disconnect, forced: "), VARII(forced), NULL);
 	}
 #endif
-	
+
 	if(forced) rocksockserver_disconnect_client(&srv->serva, fd);
 	client->state = SS_DISCONNECTED;
 	if(client->data) {
@@ -187,11 +187,11 @@ void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 		client->data->start = 0;
 		client->data->used = 0;
 	}
-	
+
 	if(client->target_fd != -1) fdflag = 1;
 	fd = client->target_fd;
 	client->target_fd = -1;
-	
+
 	if(fdflag) {
 		srv->clients[fdindex(fd)].target_fd = -1;
 		socksserver_disconnect_client(srv, fd, 1);
@@ -217,7 +217,7 @@ static char* get_client_ip(struct sockaddr_storage* ip, char* buffer, size_t buf
 		stringfromipv4(((unsigned char*)(&((struct sockaddr_in*)ip)->sin_addr)), buffer);
 	else return NULL;
 	return buffer;
-	return NULL;	
+	return NULL;
 #endif
 }
 #endif
@@ -236,14 +236,14 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
 	}
-	
+
 	fdinfo* client = &srv->clients[fdindex(fd)];
-	
+
 	// put into nonblocking mode, so that writes will not block the server
 	int flags = fcntl(fd, F_GETFL); 
 	if(flags == -1) return -1;
 	if(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -2;
-	
+
 	client->data = find_free_buffer(srv);
 	if (!client->data) {
 #ifndef NO_LOG
@@ -255,12 +255,12 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
 	}
-	
+
 	client->state = SS_CONNECTED;
 	client->data->state = BS_IDLE;
 	client->data->start = 0;
 	client->target_fd = -1;
-	
+
 	return 0;
 }
 
@@ -274,7 +274,7 @@ int socksserver_on_clientwantsdata (void* userdata, int fd) {
 
 	if(client->data->state == BS_WRITING)
 		socksserver_write(srv, fd);
-	
+
 	return 0;
 }
 
@@ -297,7 +297,7 @@ rfc1928_authmethod socksserver_parse_authpacket(socksserver* srv, int fd) {
 int socksserver_read_client(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	ssize_t nbytes;
-	
+
 	if ((nbytes = recv(fd, client->data->buf + client->data->start, CLIENT_BUFSIZE - client->data->start, 0)) <= 0) {
 		socksserver_on_clientdisconnect(srv, fd);
 		rocksockserver_disconnect_client(&srv->serva, fd);
@@ -313,7 +313,7 @@ int socksserver_write(socksserver* srv, int fd) {
 	client->data->state = BS_WRITING;
 	ssize_t written = send(fd, client->data->buf + client->data->start, client->data->used - client->data->start, MSG_NOSIGNAL);
 	int err;
-	
+
 	if (written < 0) {
 		err = errno;
 		if(err == EAGAIN || err == EWOULDBLOCK) return 0;
@@ -337,14 +337,14 @@ int socksserver_write(socksserver* srv, int fd) {
         +----+-----+-------+------+----------+----------+
         | 1  |  1  | X'00' |  1   | Variable |    2     |
         +----+-----+-------+------+----------+----------+
-*/        
+*/
 int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	size_t i = 0;
 	client->data->buf[i++] = 5;
 	client->data->buf[i++] = ec;
 	client->data->buf[i++] = 0;
-	
+
 	client->data->buf[i++] = AT_IPV4;
 	client->data->buf[i++] = 0;
 	client->data->buf[i++] = 0;
@@ -353,7 +353,7 @@ int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
 
 	client->data->buf[i++] = 0;
 	client->data->buf[i++] = 0;
-	
+
 	client->data->used = i;
 	client->data->start = 0;
 	client->data->state = BS_WRITING;
@@ -462,15 +462,15 @@ int resolve_host(rs_hostInfo* hostinfo) {
 #    else
 	struct hostent* he;
 	if (!(he = gethostbyname(hostinfo->host)) || !he->h_addr_list[0] || he->h_addrtype != AF_INET) return -2;
-#    endif	
+#    endif
 	hostinfo->hostaddr->ai_family = AF_INET;
 	hostinfo->hostaddr->ai_addr->sa_family = AF_INET;
 	hostinfo->hostaddr->ai_addrlen = sizeof(struct sockaddr_in);
 #    ifdef USE_FIREDNS
 	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, result, 4);
-#    else	
+#    else
 	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, he->h_addr_list[0], 4);
-#    endif	
+#    endif
 	((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
 	return 0;
 
@@ -505,7 +505,7 @@ int resolve_host(rs_hostInfo* hostinfo) {
    The SOCKS server will typically evaluate the request based on source
    and destination addresses, and return one or more reply messages, as
    appropriate for the request type.
-   
+
    In an address field (DST.ADDR, BND.ADDR), the ATYP field specifies
    the type of address contained within the field:
 
@@ -522,8 +522,8 @@ int resolve_host(rs_hostInfo* hostinfo) {
           o  X'04'
 
    the address is a version-6 IP address, with a length of 16 octets.
-   
-   
+
+
 */
 
 // parses the connect request and tries to establish the requested connection.
@@ -538,22 +538,22 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 	unsigned char* buf = client->data->buf;
 	int flags, ret;
 	rs_hostInfo addr;
-	
+
 	struct addrinfo addrbuf;
 	struct sockaddr sockbuf;
-	
+
 	memset(&addr, 0, sizeof(addr));
 	memset(&addrbuf, 0, sizeof(addrbuf));
 	memset(&sockbuf, 0, sizeof(sockbuf));
-	
+
 	addrbuf.ai_addr = &sockbuf;
 	addr.hostaddr = &addrbuf;
-	
-	
+
+
 	if(!client->data->start) return -1;
 	if(buf[i++] != 5) return EC_NOT_ALLOWED; // check first byte whenever the message length is > 0 to not waste resources on maldoers
 	if(client->data->start < 1+1+1+1+4+2) return -1;
-	
+
 	if(buf[i++] != 1) return EC_COMMAND_NOT_SUPPORTED; // we support only the connect method.
 	if(buf[i++] != 0) return EC_GENERAL_FAILURE;
 	switch(buf[i++]) {
@@ -585,7 +585,7 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 			} else return EC_ADDRESSTYPE_NOT_SUPPORTED;
 			break;
 #endif
-			
+
 #ifndef IPV4_ONLY
 		case 4: //ipv6
 			if(client->data->start < 1+1+1+1+16+2) return -1;
@@ -613,24 +613,24 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 				return EC_GENERAL_FAILURE;
 		}
 	}
-	
+
 	if(client->target_fd >= MAX_FD) {
 		close(client->target_fd);
 		return EC_GENERAL_FAILURE;
 	}
-	
-	flags = fcntl(client->target_fd, F_GETFL); 
+
+	flags = fcntl(client->target_fd, F_GETFL);
 	if(flags == -1) return EC_GENERAL_FAILURE;
-	
+
 	if(fcntl(client->target_fd, F_SETFL, flags | O_NONBLOCK) == -1) return EC_GENERAL_FAILURE;
-	
+
 	ret = connect(client->target_fd, addr.hostaddr->ai_addr, addr.hostaddr->ai_addrlen);
 	if(ret == -1) {
 		ret = errno;
-		if (!(ret == EINPROGRESS || ret == EWOULDBLOCK)) 
+		if (!(ret == EINPROGRESS || ret == EWOULDBLOCK))
 			goto neterror;
 	}
-	
+
 	srv->clients[fdindex(client->target_fd)].state = SS_SOCKSTARGET;
 	srv->clients[fdindex(client->target_fd)].data = client->data;
 	srv->clients[fdindex(client->target_fd)].target_fd = fd;
@@ -683,30 +683,30 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 	char buf[4];
 	ssize_t readv;
 	int ret;
-	
+
 	(void) dummy;
-	
+
 	if(client->state == SS_AWAITING_PIPE || (client->data->state != BS_IDLE && client->data->state != BS_READING)) {
 		if((readv = recvfrom(fd, buf, 4, MSG_PEEK, NULL, NULL)) <= 0) {
 			if (!readv)
 				socksserver_on_clientdisconnect(userdata, fd);
 #ifndef NO_LOG
-			else 
+			else
 				log_perror("recvfrom");
 #endif
 			rocksockserver_disconnect_client(&srv->serva, fd);
 		}
 		return 1;
 	}
-	
+
 	if(client->state == SS_WIRED || client->state == SS_SOCKSTARGET) {
 		client->data->start = 0;
 		client->data->used = 0;
 	}
-	
-	if(socksserver_read_client(srv, fd)) 
+
+	if(socksserver_read_client(srv, fd))
 		return 2;
-	     
+
 	switch(client->state) {
 		case SS_AWAITING_DISCONNECT:
 			socksserver_disconnect_client(srv, fd, 1);
@@ -715,7 +715,7 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 			if((authmethod = socksserver_parse_authpacket(srv, fd)) != AM_INVALID) {
 				if(authmethod == AM_USERNAME)
 					client->state = SS_AWAITING_AUTH_PACKET;
-				else 
+				else
 					client->state = SS_AUTHED;
 			} else {
 				client->state = SS_AWAITING_DISCONNECT;
@@ -741,7 +741,7 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 			} else {
 				client->state = SS_AWAITING_PIPE;
 			}
-			socksserver_send_error(srv, fd, ret);			
+			socksserver_send_error(srv, fd, ret);
 			break;
 		case SS_SOCKSTARGET:
 			if(srv->clients[fdindex(client->target_fd)].state == SS_AWAITING_PIPE)
@@ -782,7 +782,7 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 		#else
 		;
 		#endif
-	if(uid != -1 && setuid(uid) == -1) 
+	if(uid != -1 && setuid(uid) == -1)
 		#ifndef NO_LOG
 		log_perror("setuid");
 		#else
@@ -804,14 +804,14 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 		srv->password.size = pass->size;
 		memset(pass->ptr, 0, pass->size);
 	}
-	
+
 	srv->accepted_authmethod = username->size ? AM_USERNAME : AM_NO_AUTH;
 	#ifdef USE_FIREDNS
 	firedns_init(&fire);
 	firedns_add_server(&fire, "8.8.4.4");
 	firedns_add_server(&fire, "8.8.8.8");
 	#endif
-	
+
 	if(rocksockserver_loop(&srv->serva, NULL, 0, &socksserver_on_clientconnect, &socksserver_on_clientread, &socksserver_on_clientwantsdata, &socksserver_on_clientdisconnect)) return -2;
 	return 0;
 }
@@ -853,10 +853,10 @@ int main(int argc, char** argv) {
 #endif
 	SPDECLAREC(o_user, op_get(opt, SPL("user")));
 	SPDECLAREC(o_pass, op_get(opt, SPL("pass")));
-	
+
 	char* ip = o_listenip->size ? o_listenip->ptr : (char*) defaultip;
 	int port = o_port->size ? strtoint(o_port->ptr, o_port->size) : 1080;
-	
+
 #ifndef NO_LOG
 	if(op_hasflag(opt, SPLITERAL("-help"))) syntax(opt);
 #endif
