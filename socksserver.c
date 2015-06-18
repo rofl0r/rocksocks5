@@ -37,9 +37,6 @@
 
 #include "../rocksock/rocksockserver.h"
 
-// only needed for struct rs_hostInfo
-#include "../rocksock/rocksock.h"
-
 #include "../rocksock/endianness.h"
 
 #include "../lib/include/stringptr.h"
@@ -69,6 +66,15 @@
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
 #endif
+
+typedef struct {
+	char* host;
+	unsigned short port;
+	struct addrinfo* hostaddr;
+#ifdef NO_DNS_SUPPORT
+	struct addrinfo hostaddr_buf;
+#endif
+} host_info;
 
 typedef enum {
 	AM_NO_AUTH = 0,
@@ -437,7 +443,7 @@ firedns_state fire;
 #endif
 
 #ifndef NO_DNS_SUPPORT
-int resolve_host(rs_hostInfo* hostinfo) {
+int resolve_host(host_info* hostinfo) {
 	if (!hostinfo || !hostinfo->host || !hostinfo->port) return -1;
 #  ifndef IPV4_ONLY
 	int ret;
@@ -537,7 +543,7 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 #endif
 	unsigned char* buf = client->data->buf;
 	int flags, ret;
-	rs_hostInfo addr;
+	host_info addr;
 
 	struct addrinfo addrbuf;
 	struct sockaddr sockbuf;
