@@ -35,6 +35,8 @@
 #include <errno.h>
 #include <arpa/inet.h>
 
+#define USE_LIBULZ
+
 #include "../rocksock/rocksockserver.h"
 
 #include "../rocksock/endianness.h"
@@ -42,15 +44,63 @@
 #include "../lib/include/stringptr.h"
 #include "../lib/include/strlib.h"
 #include "../lib/include/optparser.h"
-#ifndef NO_LOG
-#include "../lib/include/logger.h"
-#endif
-#ifndef NO_DAEMONIZE
 #include "../lib/include/proclib.h"
+
+#ifndef NO_LOG
+#define CONFIG_LOG 1
+#include "../lib/include/logger.h"
+#define LOGP(X) log_perror(X)
+#define LOGPUTS(F, X) log_puts(F, X)
+#define LOGPUTD(F, X, Y) log_putd(F, X, Y)
+#define LOGTS(X) log_timestamp(X)
+#define LOGPUT(F, ...) log_put(F, __VA_ARGS__)
+#else
+#define CONFIG_LOG 0
+#define LOGP(X) do {} while(0)
+#define LOGPUTS(F, X) do {} while(0)
+#define LOGPUTD(F, X, Y) do {} while(0)
+#define LOGTS(X) do {} while(0)
+#define LOGPUT(F, ...) do {} while(0)
+#endif
+
+#ifndef NO_DAEMONIZE
+#define CONFIG_DAEMONIZE 1
+#else
+#define CONFIG_DAEMONIZE 0
+#endif
+
+#ifndef NO_IDSWITCH
+#define CONFIG_IDSWITCH 1
+#else
+#define CONFIG_IDSWITCH 0
+#endif
+
+#ifndef IPV4_ONLY
+#define CONFIG_IPV6 1
+#undef USE_FIREDNS
+#else
+#define CONFIG_IPV6 0
 #endif
 
 #ifdef USE_FIREDNS
+#define CONFIG_FIREDNS 1
 #include "../firedns/include/firedns.h"
+static firedns_state fire;
+static void init_firedns(void) {
+	firedns_init(&fire);
+	firedns_add_server(&fire, "8.8.4.4");
+	firedns_add_server(&fire, "8.8.8.8");
+}
+#else
+#define CONFIG_FIREDNS 0
+#define init_firedns() do {} while(0)
+#define firedns_resolveip4(...) 0
+#endif
+
+#ifndef NO_DNS_SUPPORT
+#define CONFIG_DNS 1
+#else
+#define CONFIG_DNS 0
 #endif
 
 #ifndef USER_BUFSIZE_KB
@@ -71,9 +121,7 @@ typedef struct {
 	char* host;
 	unsigned short port;
 	struct addrinfo* hostaddr;
-#ifdef NO_DNS_SUPPORT
 	struct addrinfo hostaddr_buf;
-#endif
 } host_info;
 
 typedef enum {
@@ -141,28 +189,24 @@ typedef struct {
 	socksbuffer clientbuffers[USER_MAX_CONN];
 	fdinfo clients[USER_MAX_CONN * 2];
 	rfc1928_authmethod accepted_authmethod;
-#ifndef NO_LOG
 	int log;
-#endif
 } socksserver;
 
 // dont waste buffers for stdin, out, err
 #define MAX_FD (3 + (USER_MAX_CONN * 2))
 #define fdindex(a) (a - 3)
 
-#ifndef NO_LOG
 static void logstart(void) {
-	log_puts(1, SPL("["));
-	log_timestamp(1);
-	log_puts(1, SPL("] "));
+	LOGPUTS(1, SPL("["));
+	LOGTS(1);
+	LOGPUTS(1, SPL("] "));
 }
 
 static void printfd(int fd) {
-	log_puts(1, SPLITERAL("("));
-	log_putd(1, fd, 1);
-	log_puts(1, SPLITERAL(")"));
+	LOGPUTS(1, SPLITERAL("("));
+	LOGPUTD(1, fd, 1);
+	LOGPUTS(1, SPLITERAL(")"));
 }
-#endif
 
 static inline socksbuffer* find_free_buffer(socksserver* srv) {
 	size_t i;
@@ -172,19 +216,17 @@ static inline socksbuffer* find_free_buffer(socksserver* srv) {
 	return NULL;
 }
 
-int socksserver_write(socksserver* srv, int fd);
+static int socksserver_write(socksserver* srv, int fd);
 
 // forced == 1
-void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
+static void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	int fdflag = 0;
-#ifndef NO_LOG
-	if(srv->log) {
+	if(CONFIG_LOG && srv->log) {
 		logstart();
 		printfd(fd);
-		log_put(1, VARISL(" disconnect, forced: "), VARII(forced), NULL);
+		LOGPUT(1, VARISL(" disconnect, forced: "), VARII(forced), NULL);
 	}
-#endif
 
 	if(forced) rocksockserver_disconnect_client(&srv->serva, fd);
 	client->state = SS_DISCONNECTED;
@@ -204,7 +246,7 @@ void socksserver_disconnect_client(socksserver* srv, int fd, int forced) {
 	}
 }
 
-int socksserver_on_clientdisconnect (void* userdata, int fd) {
+static int socksserver_on_clientdisconnect (void* userdata, int fd) {
 	socksserver* srv = (socksserver*) userdata;
 //	fdinfo* client = &srv->clients[fdindex(fd)];
 	//if(client->target_fd != -1) socksserver_disconnect_client(srv, client->target_fd, 0);
@@ -212,32 +254,30 @@ int socksserver_on_clientdisconnect (void* userdata, int fd) {
 	return 0;
 }
 
-#ifndef NO_LOG
 static char* get_client_ip(struct sockaddr_storage* ip, char* buffer, size_t bufsize) {
-#ifndef IPV4_ONLY
-	if(ip->ss_family == PF_INET)
-	return (char*) inet_ntop(PF_INET, &((struct sockaddr_in*) ip)->sin_addr, buffer, bufsize);
-	else return (char*) inet_ntop(PF_INET6, &((struct sockaddr_in6*) ip)->sin6_addr, buffer, bufsize);
-#else
-	if(bufsize >= 16)
-		stringfromipv4(((unsigned char*)(&((struct sockaddr_in*)ip)->sin_addr)), buffer);
-	else return NULL;
-	return buffer;
-	return NULL;
-#endif
+	if(CONFIG_IPV6) {
+		if(ip->ss_family == PF_INET)
+		return (char*) inet_ntop(PF_INET, &((struct sockaddr_in*) ip)->sin_addr, buffer, bufsize);
+		else return (char*) inet_ntop(PF_INET6, &((struct sockaddr_in6*) ip)->sin6_addr, buffer, bufsize);
+	} else {
+		if(bufsize >= 16)
+			stringfromipv4(((unsigned char*)(&((struct sockaddr_in*)ip)->sin_addr)), buffer);
+		else return NULL;
+		return buffer;
+		return NULL;
+	}
 }
-#endif
 
-int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clientaddr, int fd) {
+static int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clientaddr, int fd) {
 	socksserver* srv = (socksserver*) userdata;
-#ifndef NO_LOG
 	char buffer[256];
-	if(srv->log && clientaddr) {
+	(void) buffer;
+	if(CONFIG_LOG && srv->log && clientaddr) {
 		logstart();
 		printfd(fd);
-		log_put(1, VARISL(" connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), NULL);
+		LOGPUT(1, VARISL(" connect from: "), VARIC(get_client_ip(clientaddr, buffer, sizeof(buffer))), NULL);
 	}
-#endif
+
 	if(fd < 3 || fd >= MAX_FD) {
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
@@ -246,18 +286,16 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	fdinfo* client = &srv->clients[fdindex(fd)];
 
 	// put into nonblocking mode, so that writes will not block the server
-	int flags = fcntl(fd, F_GETFL); 
+	int flags = fcntl(fd, F_GETFL);
 	if(flags == -1) return -1;
 	if(fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) return -2;
 
 	client->data = find_free_buffer(srv);
 	if (!client->data) {
-#ifndef NO_LOG
-		if(srv->log) {
+		if(CONFIG_LOG && srv->log) {
 			logstart();
-			log_puts(1, SPL("warning: couldnt find free buffer\n"));
+			LOGPUTS(1, SPL("warning: couldnt find free buffer\n"));
 		}
-#endif
 		rocksockserver_disconnect_client(&srv->serva, fd);
 		return -2;
 	}
@@ -270,7 +308,7 @@ int socksserver_on_clientconnect (void* userdata, struct sockaddr_storage* clien
 	return 0;
 }
 
-int socksserver_on_clientwantsdata (void* userdata, int fd) {
+static int socksserver_on_clientwantsdata (void* userdata, int fd) {
 	socksserver* srv = (socksserver*) userdata;
 
 	fdinfo* client = &srv->clients[fdindex(fd)];
@@ -285,7 +323,7 @@ int socksserver_on_clientwantsdata (void* userdata, int fd) {
 }
 
 // returns either the one authmethod supported by the server or AM_INVALID.
-rfc1928_authmethod socksserver_parse_authpacket(socksserver* srv, int fd) {
+static rfc1928_authmethod socksserver_parse_authpacket(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	unsigned char numMethods;
 	unsigned char i;
@@ -300,7 +338,7 @@ rfc1928_authmethod socksserver_parse_authpacket(socksserver* srv, int fd) {
 	return AM_INVALID;
 }
 
-int socksserver_read_client(socksserver* srv, int fd) {
+static int socksserver_read_client(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	ssize_t nbytes;
 
@@ -314,7 +352,7 @@ int socksserver_read_client(socksserver* srv, int fd) {
 	return 0;
 }
 
-int socksserver_write(socksserver* srv, int fd) {
+static int socksserver_write(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	client->data->state = BS_WRITING;
 	ssize_t written = send(fd, client->data->buf + client->data->start, client->data->used - client->data->start, MSG_NOSIGNAL);
@@ -325,9 +363,7 @@ int socksserver_write(socksserver* srv, int fd) {
 		if(err == EAGAIN || err == EWOULDBLOCK) return 0;
 		else {
 			//if(err == EBADF) 
-#ifndef NO_LOG
-			log_perror("writing");
-#endif
+			LOGP("writing");
 			socksserver_disconnect_client(srv, fd, 1);
 			rocksockserver_disconnect_client(&srv->serva, fd);
 			return 3;
@@ -344,7 +380,7 @@ int socksserver_write(socksserver* srv, int fd) {
         | 1  |  1  | X'00' |  1   | Variable |    2     |
         +----+-----+-------+------+----------+----------+
 */
-int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
+static int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	size_t i = 0;
 	client->data->buf[i++] = 5;
@@ -366,7 +402,7 @@ int socksserver_send_error(socksserver* srv, int fd, rfc1928_errorcode ec) {
 	return socksserver_write(srv, fd);
 }
 
-int socksserver_send_auth_response_i(socksserver* srv, int fd, int version, rfc1928_authmethod meth) {
+static int socksserver_send_auth_response_i(socksserver* srv, int fd, int version, rfc1928_authmethod meth) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	client->data->buf[0] = version;
 	client->data->buf[1] = meth;
@@ -413,7 +449,7 @@ int socksserver_send_auth_response_i(socksserver* srv, int fd, int version, rfc1
  * */
 
 // return 0 when packet is not complete, 1 if successfull, -1 if not
-int socksserver_check_credentials(socksserver* srv, int fd) {
+static int socksserver_check_credentials(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	size_t i = 0;
 	unsigned char ulen, plen;
@@ -438,51 +474,44 @@ static inline uint16_t my_ntohs (unsigned char* port) {
 #endif
 }
 
-#ifdef USE_FIREDNS
-firedns_state fire;
-#endif
-
-#ifndef NO_DNS_SUPPORT
-int resolve_host(host_info* hostinfo) {
+static int resolve_host(host_info* hostinfo) {
 	if (!hostinfo || !hostinfo->host || !hostinfo->port) return -1;
-#  ifndef IPV4_ONLY
-	int ret;
-	struct addrinfo hints;
-	memset(&hints, 0, sizeof(hints));
-	hints.ai_family = PF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	ret = getaddrinfo(hostinfo->host, NULL, &hints, &hostinfo->hostaddr);
-	if(!ret) {
-		if(hostinfo->hostaddr->ai_addr->sa_family == PF_INET)
-			((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
+	if(CONFIG_IPV6) {
+		int ret;
+		struct addrinfo hints;
+		memset(&hints, 0, sizeof(hints));
+		hints.ai_family = PF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		ret = getaddrinfo(hostinfo->host, NULL, &hints, &hostinfo->hostaddr);
+		if(!ret) {
+			if(hostinfo->hostaddr->ai_addr->sa_family == PF_INET)
+				((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
+			else
+				((struct sockaddr_in6*) hostinfo->hostaddr->ai_addr)->sin6_port = htons(hostinfo->port);
+			return 0;
+		} else
+			return ret;
+	} else {
+		struct in_addr *result;
+		struct hostent* he;
+		if(CONFIG_FIREDNS) {
+			result = firedns_resolveip4(&fire, hostinfo->host);
+			if(!result) return 1;
+		} else {
+			if (!(he = gethostbyname(hostinfo->host)) || !he->h_addr_list[0] || he->h_addrtype != AF_INET) return -2;
+		}
+		hostinfo->hostaddr->ai_family = AF_INET;
+		hostinfo->hostaddr->ai_addr->sa_family = AF_INET;
+		hostinfo->hostaddr->ai_addrlen = sizeof(struct sockaddr_in);
+		if(CONFIG_FIREDNS)
+			memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, result, 4);
 		else
-			((struct sockaddr_in6*) hostinfo->hostaddr->ai_addr)->sin6_port = htons(hostinfo->port);
+			memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, he->h_addr_list[0], 4);
+		((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
 		return 0;
-	} else
-		return ret;
-#  else
-#    ifdef USE_FIREDNS
-	struct in_addr *result;
-	result = firedns_resolveip4(&fire, hostinfo->host);
-	if(!result) return 1;
-#    else
-	struct hostent* he;
-	if (!(he = gethostbyname(hostinfo->host)) || !he->h_addr_list[0] || he->h_addrtype != AF_INET) return -2;
-#    endif
-	hostinfo->hostaddr->ai_family = AF_INET;
-	hostinfo->hostaddr->ai_addr->sa_family = AF_INET;
-	hostinfo->hostaddr->ai_addrlen = sizeof(struct sockaddr_in);
-#    ifdef USE_FIREDNS
-	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, result, 4);
-#    else
-	memcpy(&((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_addr, he->h_addr_list[0], 4);
-#    endif
-	((struct sockaddr_in*) hostinfo->hostaddr->ai_addr)->sin_port = htons(hostinfo->port);
-	return 0;
-
-#  endif
+	}
 }
-#endif
+
 /*
  The SOCKS request is formed as follows:
 
@@ -535,12 +564,10 @@ int resolve_host(host_info* hostinfo) {
 // parses the connect request and tries to establish the requested connection.
 // returns -1 if packet is not complete
 
-int socksserver_connect_request(socksserver* srv, int fd) {
+static int socksserver_connect_request(socksserver* srv, int fd) {
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	size_t i = 0;
-#ifndef NO_DNS_SUPPORT
 	unsigned char dlen = 0;
-#endif
 	unsigned char* buf = client->data->buf;
 	int flags, ret;
 	host_info addr;
@@ -571,38 +598,36 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 			addr.hostaddr->ai_addr->sa_family = PF_INET;
 			addr.hostaddr->ai_addrlen = sizeof(struct sockaddr_in);
 			break;
-#ifndef NO_DNS_SUPPORT
 		case 3:
 			//dns
-			dlen = buf[i++];
-			if(client->data->start < 1U+1U+1U+1U+1U+dlen+2U) return -1;
-			addr.port = my_ntohs(buf + i + dlen);
-			buf[i + dlen] = 0;
-			addr.host = (char*) (buf + i);
-			#ifndef IPV4_ONLY
-			addr.hostaddr = NULL;
-			#endif
-			if(!resolve_host(&addr)) {
-			#ifndef IPV4_ONLY
-				memcpy(&addrbuf, addr.hostaddr, sizeof(struct addrinfo));
-				freeaddrinfo(addr.hostaddr);
-				addr.hostaddr = &addrbuf;
-			#endif
-			} else return EC_ADDRESSTYPE_NOT_SUPPORTED;
-			break;
-#endif
-
-#ifndef IPV4_ONLY
+			if(CONFIG_DNS) {
+				dlen = buf[i++];
+				if(client->data->start < 1U+1U+1U+1U+1U+dlen+2U) return -1;
+				addr.port = my_ntohs(buf + i + dlen);
+				buf[i + dlen] = 0;
+				addr.host = (char*) (buf + i);
+				if(CONFIG_IPV6) addr.hostaddr = NULL;
+				if(!resolve_host(&addr)) {
+					if(CONFIG_IPV6) {
+						memcpy(&addrbuf, addr.hostaddr, sizeof(struct addrinfo));
+						freeaddrinfo(addr.hostaddr);
+						addr.hostaddr = &addrbuf;
+					}
+				} else goto notsupported;
+				break;
+			} else goto notsupported;
 		case 4: //ipv6
-			if(client->data->start < 1+1+1+1+16+2) return -1;
-			memcpy(&((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_addr, buf + 4, 16);
-			memcpy(&((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_port, buf + 20, 2);
-			((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_family = PF_INET6;
-			addr.hostaddr->ai_addr->sa_family = PF_INET6;
-			addr.hostaddr->ai_addrlen = sizeof(struct sockaddr_in6);
-			break;
-#endif
+			if(CONFIG_IPV6) {
+				if(client->data->start < 1+1+1+1+16+2) return -1;
+				memcpy(&((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_addr, buf + 4, 16);
+				memcpy(&((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_port, buf + 20, 2);
+				((struct sockaddr_in6*) addr.hostaddr->ai_addr)->sin6_family = PF_INET6;
+				addr.hostaddr->ai_addr->sa_family = PF_INET6;
+				addr.hostaddr->ai_addrlen = sizeof(struct sockaddr_in6);
+				break;
+			}
 		default:
+		notsupported:
 			return EC_ADDRESSTYPE_NOT_SUPPORTED;
 	}
 	client->target_fd = socket(addr.hostaddr->ai_addr->sa_family, SOCK_STREAM, 0);
@@ -642,17 +667,16 @@ int socksserver_connect_request(socksserver* srv, int fd) {
 	srv->clients[fdindex(client->target_fd)].target_fd = fd;
 	rocksockserver_watch_fd(&srv->serva, client->target_fd);
 
-#ifndef NO_LOG
-	if(srv->log) {
+	if(CONFIG_LOG && srv->log) {
 		if(get_client_ip((struct sockaddr_storage*) addr.hostaddr->ai_addr, (char*) buf, CLIENT_BUFSIZE)) {
 			logstart();
 			printfd(fd);
-			log_puts(1, SPLITERAL(" -> "));
+			LOGPUTS(1, SPLITERAL(" -> "));
 			printfd(client->target_fd);
-			log_put(1, VARISL(" <"), VARIC((char*)buf), VARISL(">"), NULL);
+			LOGPUT(1, VARISL(" <"), VARIC((char*)buf), VARISL(">"), NULL);
 		}
 	}
-#endif
+
 	return EC_SUCCESS;
 }
 
@@ -682,7 +706,7 @@ int socksserver_connect_request(socksserver* srv, int fd) {
    If the selected METHOD is X'FF', none of the methods listed by the
    client are acceptable, and the client MUST close the connection.
 */
-int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
+static int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 	socksserver* srv = (socksserver*) userdata;
 	fdinfo* client = &srv->clients[fdindex(fd)];
 	rfc1928_authmethod authmethod;
@@ -696,10 +720,8 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 		if((readv = recvfrom(fd, buf, 4, MSG_PEEK, NULL, NULL)) <= 0) {
 			if (!readv)
 				socksserver_on_clientdisconnect(userdata, fd);
-#ifndef NO_LOG
 			else
-				log_perror("recvfrom");
-#endif
+				LOGP("recvfrom");
 			rocksockserver_disconnect_client(&srv->serva, fd);
 		}
 		return 1;
@@ -765,38 +787,18 @@ int socksserver_on_clientread (void* userdata, int fd, size_t dummy) {
 	return 0;
 }
 
-int socksserver_init(socksserver* srv, char* listenip, int port, int log, stringptr* username, stringptr* pass, int uid, int gid) {
+static int socksserver_init(socksserver* srv, char* listenip, int port, int log, stringptr* username, stringptr* pass, int uid, int gid) {
 	memset(srv, 0, sizeof(socksserver));
-#ifndef NO_LOG
 	srv->log = log;
-#else
-	(void) log;
-#endif
 	if(rocksockserver_init(&srv->serva, listenip, port, (void*) srv)) return -1;
 
-#ifndef NO_IDSWITCH
-	//dropping privs after bind()
-	if(gid != -1 && setgid(gid) == -1)
-		#ifndef NO_LOG
-		log_perror("setgid");
-		#else
-		;
-		#endif
-	if(gid != -1 && setgroups(0, NULL) == -1)
-		#ifndef NO_LOG
-		log_perror("setgroups");
-		#else
-		;
-		#endif
-	if(uid != -1 && setuid(uid) == -1)
-		#ifndef NO_LOG
-		log_perror("setuid");
-		#else
-		;
-		#endif
-#else
-	(void)uid; (void) gid;
-#endif
+	if(CONFIG_IDSWITCH) {
+		//dropping privs after bind()
+		if(gid != -1 && setgid(gid) == -1) LOGP("setgid");
+		if(gid != -1 && setgroups(0, NULL) == -1) LOGP("setgroups");
+		if(uid != -1 && setuid(uid) == -1) LOGP("setuid");
+	}
+
 	if(username->size) {
 		memcpy(srv->_username, username->ptr, username->size);
 		srv->username.ptr = srv->_username;
@@ -812,28 +814,20 @@ int socksserver_init(socksserver* srv, char* listenip, int port, int log, string
 	}
 
 	srv->accepted_authmethod = username->size ? AM_USERNAME : AM_NO_AUTH;
-	#ifdef USE_FIREDNS
-	firedns_init(&fire);
-	firedns_add_server(&fire, "8.8.4.4");
-	firedns_add_server(&fire, "8.8.8.8");
-	#endif
+	init_firedns();
 
 	if(rocksockserver_loop(&srv->serva, NULL, 0, &socksserver_on_clientconnect, &socksserver_on_clientread, &socksserver_on_clientwantsdata, &socksserver_on_clientdisconnect)) return -2;
 	return 0;
 }
 
-#ifndef NO_LOG
 __attribute__ ((noreturn))
-void syntax(op_state* opt) {
-	log_puts(1, SPL("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar -d\n"));
-	log_puts(1, SPL("user and pass are regarding socks authentication\n"));
-	log_puts(1, SPL("passed options were:\n"));
-	op_printall(opt);
+static void syntax(op_state* opt) {
+	LOGPUTS(1, SPL("progname -listenip=0.0.0.0 -port=1080 -log=0 -uid=0 -gid=0 -user=foo -pass=bar -d\n"));
+	LOGPUTS(1, SPL("user and pass are regarding socks authentication\n"));
+	LOGPUTS(1, SPL("passed options were:\n"));
+	if(CONFIG_LOG) op_printall(opt);
 	exit(1);
 }
-#else
-#define syntax(X) exit(4)
-#endif
 
 int main(int argc, char** argv) {
 	socksserver srv;
@@ -842,39 +836,36 @@ int main(int argc, char** argv) {
 	op_init(opt, argc, argv);
 	SPDECLAREC(o_port, op_get(opt, SPL("port")));
 	SPDECLAREC(o_listenip, op_get(opt, SPL("listenip")));
-#ifndef NO_LOG
-	SPDECLAREC(o_log, op_get(opt, SPL("log")));
-	int log = o_log->size ? strtoint(o_log->ptr, o_log->size) : 1;
-#else
-	int log = 0;
-#endif
-#ifndef NO_IDSWITCH
-	SPDECLAREC(o_uid, op_get(opt, SPL("uid")));
-	SPDECLAREC(o_gid, op_get(opt, SPL("gid")));
-	int uid = o_uid->size ? strtoint(o_uid->ptr, o_uid->size) : -1;
-	int gid = o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1;
-#else
-	int uid = -1;
-	int gid = -1;
-#endif
+
+	int log;
+	if(CONFIG_LOG) {
+		SPDECLAREC(o_log, op_get(opt, SPL("log")));
+		log = o_log->size ? strtoint(o_log->ptr, o_log->size) : 1;
+	} else log = 0;
+
+	int uid, gid;
+	if(CONFIG_IDSWITCH) {
+		SPDECLAREC(o_uid, op_get(opt, SPL("uid")));
+		SPDECLAREC(o_gid, op_get(opt, SPL("gid")));
+		uid = o_uid->size ? strtoint(o_uid->ptr, o_uid->size) : -1;
+		gid = o_gid->size ? strtoint(o_gid->ptr, o_gid->size) : -1;
+	} else {
+		uid = -1;
+		gid = -1;
+	}
 	SPDECLAREC(o_user, op_get(opt, SPL("user")));
 	SPDECLAREC(o_pass, op_get(opt, SPL("pass")));
 
 	char* ip = o_listenip->size ? o_listenip->ptr : (char*) defaultip;
 	int port = o_port->size ? strtoint(o_port->ptr, o_port->size) : 1080;
 
-#ifndef NO_LOG
-	if(op_hasflag(opt, SPLITERAL("-help"))) syntax(opt);
-#endif
+	if(CONFIG_LOG && op_hasflag(opt, SPLITERAL("-help"))) syntax(opt);
+
 	if((o_user->size && (!o_pass->size || o_user->size > 255)) || (o_pass->size && (!o_user->size || o_pass->size > 255))) {
-#ifndef NO_LOG
-		log_puts(1, SPL("fatal: username or password exceeding 255 chars, or only one of both set\n"));
-#endif
-		exit(1);
+		LOGPUTS(1, SPL("fatal: username or password exceeding 255 chars, or only one of both set\n"));
+		return 1;
 	}
-#ifndef NO_DAEMONIZE
-	if(op_hasflag(opt, SPL("d"))) daemonize();
-#endif
+	if(CONFIG_DAEMONIZE && op_hasflag(opt, SPL("d"))) daemonize();
 	socksserver_init(&srv, ip, port, log, o_user, o_pass, uid, gid);
 
 	return 0;
