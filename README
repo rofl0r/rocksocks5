@@ -21,14 +21,17 @@ git clone https://github.com/rofl0r/rocksocks5 socksserver
 git clone https://github.com/rofl0r/libulz lib
 git clone https://github.com/rofl0r/rocksock
 git clone -b custom https://github.com/rofl0r/firedns firedns
-git clone https://github.com/rofl0r/rcb
-export PATH=$PATH:/tmp/socksserver-0000/rcb
-ln -s /tmp/socksserver-0000/rcb/rcb.pl /tmp/socksserver-0000/rcb/rcb
+git clone https://github.com/rofl0r/rcb2
+export PATH=$PATH:/tmp/socksserver-0000/rcb2
+ln -s /tmp/socksserver-0000/rcb2/rcb2.py /tmp/socksserver-0000/rcb2/rcb2
 cd socksserver
 cp dist/config.mak .
 
 #your favorite editor here
 nano config.mak
+
+# add your prefered cflags, e.g.:
+# CFLAGS = -DIPV4_ONLY -DNO_DNS_SUPPORT -DNO_LOG -DNO_DAEMONIZE -DNO_IDSWITCH
 
 #your favorite C compiler here
 export CC=gcc
