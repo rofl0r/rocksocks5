@@ -19,7 +19,7 @@
 // possible defines: (nothing) -> uses getaddrinfo,
 //   thus pulling in dependencies to malloc, free, gai_strerror et al, and even printf
 //   this increases the binary size by around 50 KB. supports all methods.
-// NO_DNS_LOOKUP -> supports only method 0 (client submits ipv4). binary size is only ~25KB
+// NO_DNS_SUPPORT -> supports only method 0 (client submits ipv4). binary size is only ~25KB
 // IPV4_ONLY -> uses gethostbyname for dns lookup.
 //   unfortunately most modern libcs just call getaddrinfo internally.
 // IPV4_ONLY + USE_FIREDNS supports DNS via firedns. pulls dependecies to firedns.
@@ -77,6 +77,9 @@
 
 #ifndef IPV4_ONLY
 #define CONFIG_IPV6 1
+#ifdef USE_FIREDNS
+#error USE_FIREDNS requires IPV4_ONLY too
+#endif
 #undef USE_FIREDNS
 #else
 #define CONFIG_IPV6 0
